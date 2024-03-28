@@ -19,13 +19,15 @@
 #include "log.h"
 #include "shell.h"
 #include <lwip/tcpip.h>
-
+#include <lwip/ip4_nat.h>
 #include "bflb_uart.h"
 
 #include "wifi_event.h"
 #include "wifi6_led.h"
 #include "user_state.h"
 #include "user_esflash.h"
+#include "user_usb.h"
+#include "iperf.h"
 
 #ifdef DBG_TAG
 #undef DBG_TAG
@@ -47,7 +49,10 @@ int main(void)
     led_init();
     user_state_start();
     tcpip_init(NULL, NULL);
+    ip4_nat_init();
+    usb_init();
     wifi_start_firmware_task();
     user_state_send_notify(STATE_SYSTEM_START, 0);
+    // iperf_server_init();
     vTaskStartScheduler();
 }

@@ -16,8 +16,10 @@ find_package(bouffalo_sdk REQUIRED HINTS $ENV{BL_SDK_BASE})
 # 搜集所有的C文件( Collect source files)
 file(GLOB_RECURSE sources "${CMAKE_CURRENT_SOURCE_DIR}/components/*.c")
 
+# sdk_add_compile_definitions(-DBL616_DHCP_DEBUG)
+
 # 添加头文件的引用路径（Add .h include directories）
-sdk_add_include_directories(main config components/wifi components/led components/state components/esay_flash  components/cJson)
+sdk_add_include_directories(main config components/wifi components/led components/usb components/state components/esay_flash  components/cJson components/iperf_test)
 
 # 把C文件添加到工程里（Add .c file to the project）
 target_sources(app PRIVATE ${sources})

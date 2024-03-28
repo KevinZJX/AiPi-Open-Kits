@@ -50,7 +50,7 @@
 #define LWIP_BROADCAST_PING           1
 
 #define TCPIP_MBOX_SIZE               64
-#define TCPIP_THREAD_STACKSIZE        2048
+#define TCPIP_THREAD_STACKSIZE        4096
 #define TCPIP_THREAD_PRIO             28
 
 #define DEFAULT_THREAD_STACKSIZE      1024
@@ -118,6 +118,7 @@
 #define LWIP_DNS                  1
 #define LWIP_IGMP                 0
 #define IP_NAT                    1
+#define NAT_DEBUG                 0
 #define LWIP_SO_RCVTIMEO          1
 #define LWIP_SO_SNDTIMEO          1
 #define SO_REUSE                  1
