@@ -23,7 +23,10 @@
 #include "wifi_mgmr_ext.h"
 #include "wifi_mgmr.h"
 
+#ifdef DBG_TAG
+#undef DBG_TAG
 #define DBG_TAG "STATE"
+#endif
 
 static xTaskHandle stateTaskHandle;
 static user_state_t state_s;
@@ -34,7 +37,7 @@ mq_msg_t mq_msg;
 static void state_task(void* arg)
 {
     while (1) {
-        xTaskNotifyWait(0xffffffff, 0, &state_s, portMAX_DELAY);
+        xTaskNotifyWait(0xffffffff, 0, (uint32_t*)&state_s, portMAX_DELAY);
         switch (state_s) {
             //系统启动
             case STATE_SYSTEM_START:
@@ -165,7 +168,7 @@ int get_server_led(char* data)
         cJSON_Delete(root);
         return -1;
     }
-    if (msgType==1) {
+    if (msgType->valueint==1) {
         LOG_E("msgType Item value is not \"2\"");
         cJSON_Delete(root);
         return -1;

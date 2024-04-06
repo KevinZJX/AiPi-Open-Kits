@@ -29,7 +29,10 @@
 #include "board.h"
 #include "log.h"
 
+#ifdef DBG_TAG
+#undef DBG_TAG
 #define DBG_TAG "WIFI EVENT"
+#endif
 
 #define WIFI_STACK_SIZE     (1024*4)
 #define TASK_PRIORITY_FW    (16)
@@ -88,7 +91,7 @@ void wifi_event_handler(uint32_t code)
 {
 
     sta_ConnectStatus = code;
-    BaseType_t xHigherPriorityTaskWoken;
+    // BaseType_t xHigherPriorityTaskWoken;
     switch (code) {
         case CODE_WIFI_ON_INIT_DONE:
         {

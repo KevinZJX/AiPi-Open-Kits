@@ -17,7 +17,11 @@
 #include "log.h"
 #include "bflb_gpio.h"
 #include "user_state.h"
+
+#ifdef DBG_TAG
+#undef DBG_TAG
 #define DBG_TAG "LED"
+#endif
 
 struct bflb_device_s* gpio;
 static xTaskHandle configNet_task;
@@ -31,9 +35,9 @@ static void configNET_start(void* arg)
 {
     while (1) {
         bflb_gpio_set(gpio, LED_CONFIG_NET);
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(300));
         bflb_gpio_reset(gpio, LED_CONFIG_NET);
-        vTaskDelay(pdMS_TO_TICKS(200));
+        vTaskDelay(pdMS_TO_TICKS(300));
     }
 }
 /**
@@ -66,14 +70,12 @@ static void led_configNET_start(void)
 static void configNET_stop(void* arg)
 {
     bflb_gpio_reset(gpio, LED_CONFIG_NET);
-    bflb_gpio_set(gpio, LED_CONFIG_NET);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    bflb_gpio_reset(gpio, LED_CONFIG_NET);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    bflb_gpio_set(gpio, LED_CONFIG_NET);
-    vTaskDelay(pdMS_TO_TICKS(50));
-    bflb_gpio_reset(gpio, LED_CONFIG_NET);
-    vTaskDelete(NULL);
+    while (1) {
+        bflb_gpio_set(gpio, LED_CONFIG_NET);
+        vTaskDelay(pdMS_TO_TICKS(200));
+        bflb_gpio_reset(gpio, LED_CONFIG_NET);
+        vTaskDelay(pdMS_TO_TICKS(5000));
+    }
 }
 
 

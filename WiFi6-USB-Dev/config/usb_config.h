@@ -6,6 +6,9 @@
 #ifndef CHERRYUSB_CONFIG_H
 #define CHERRYUSB_CONFIG_H
 
+#define CHERRYUSB_VERSION     0x010000
+#define CHERRYUSB_VERSION_STR "v1.2.0"
+
 /* ================ USB common Configuration ================ */
 
 #define CONFIG_USB_PRINTF(...) printf(__VA_ARGS__)
@@ -110,10 +113,12 @@
 #endif
 
 /* ================ USB Device Port Configuration ================*/
-
+#define CONFIG_USBDEV_MAX_BUS 1
 //#define USBD_IRQHandler USBD_IRQHandler
-//#define USB_BASE (0x40080000UL)
+#define USB_BASE (0x20072000UL)
 //#define USB_NUM_BIDIR_ENDPOINTS 4
+// Check it with USB_NUM_BIDIR_ENDPOINTS
+#define CONFIG_USBDEV_EP_NUM 10
 
 /* ================ USB Host Port Configuration ==================*/
 

@@ -15,7 +15,10 @@
 #include "FreeRTOS.h"
 #include "log.h"
 
+#ifdef DBG_TAG
+#undef DBG_TAG
 #define DBG_TAG "FLASH"
+#endif
 
 void esay_flash_init(void)
 {
@@ -30,8 +33,8 @@ void esay_flash_init(void)
 */
 void flash_erase_set(char* key, char* value)
 {
-    size_t len = 0;
-    int value_len = strlen(value);
+    // size_t len = 0;
+    // int value_len = strlen(value);
     ef_del_and_save_env(key);
     ef_set_and_save_env(key, value);
     // bflb_flash_read(key, flash_data, strlen(value));
@@ -51,7 +54,12 @@ char* flash_get_data(char* key, int len)
     flash_data = pvPortMalloc(len);
     memset(flash_data, 0, len);
 
-    ef_get_env_blob(key, flash_data, len, (size_t)&len);
+    ef_get_env_blob(key, flash_data, len, (size_t*)&len);
+
+    if (len == 0) {
+        vPortFree(flash_data);
+        return NULL;
+    }
 
     return flash_data;
 }
@@ -62,7 +70,7 @@ uint8_t flash_get_key(char* key)
     static char* flash_data;
     flash_data = pvPortMalloc(1);
     memset(flash_data, 0, 1);
-    ef_get_env_blob(key, flash_data, 2, (size_t)&key_value_len);
+    ef_get_env_blob(key, flash_data, 2, (size_t*)&key_value_len);
     LOG_F("%s:flash value len=%d", key, key_value_len);
     vPortFree(flash_data);
     return key_value_len;
