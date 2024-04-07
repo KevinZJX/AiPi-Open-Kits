@@ -45,6 +45,9 @@
 /* Enable test mode */
 // #define CONFIG_USBDEV_TEST_MODE
 
+/* Enable ECM with LWIP */
+#define CONFIG_USBDEV_CDC_ECM_USING_LWIP 1
+
 #ifndef CONFIG_USBDEV_MSC_BLOCK_SIZE
 #define CONFIG_USBDEV_MSC_BLOCK_SIZE 512
 #endif

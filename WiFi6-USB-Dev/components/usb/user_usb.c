@@ -6,7 +6,13 @@
 
 #include "usbd_core.h"
 #include "usbd_cdc.h"
+#include "usbd_cdc_ecm.h"
 #include "board.h"
+
+#include <netif/etharp.h>
+#include <lwip/init.h>
+#include <lwip/netif.h>
+#include <lwip/pbuf.h>
 
 #ifdef DGB_TAG
 #undef DBG_TAG
@@ -14,9 +20,9 @@
 #endif
 
 /*!< endpoint address */
-#define CDC_IN_EP  0x81
-#define CDC_OUT_EP 0x02
-#define CDC_INT_EP 0x83
+#define CDC_IN_EP          0x81
+#define CDC_OUT_EP         0x02
+#define CDC_INT_EP         0x83
 
 #define USBD_VID           0xFFFF
 #define USBD_PID           0xFFFF
@@ -26,7 +32,7 @@
 static xTaskHandle usbCore_task;
 
 /*!< config descriptor size */
-#define USB_CONFIG_SIZE (9 + CDC_ACM_DESCRIPTOR_LEN)
+#define USB_CONFIG_SIZE    (9 + CDC_ECM_DESCRIPTOR_LEN)
 
 #ifdef CONFIG_USB_HS
 #define CDC_MAX_MPS 512
@@ -34,11 +40,16 @@ static xTaskHandle usbCore_task;
 #define CDC_MAX_MPS 64
 #endif
 
+#define CDC_ECM_ETH_STATISTICS_BITMAP 0x00000000
+
+/* str idx = 4 is for mac address: aa:bb:cc:dd:ee:ff*/
+#define CDC_ECM_MAC_STRING_INDEX      4
+
 /*!< global descriptor */
-static const uint8_t cdc_descriptor[] = {
+static const uint8_t cdc_ecm_descriptor[] = {
     USB_DEVICE_DESCRIPTOR_INIT(USB_2_0, 0xEF, 0x02, 0x01, USBD_VID, USBD_PID, 0x0100, 0x01),
     USB_CONFIG_DESCRIPTOR_INIT(USB_CONFIG_SIZE, 0x02, 0x01, USB_CONFIG_BUS_POWERED, USBD_MAX_POWER),
-    CDC_ACM_DESCRIPTOR_INIT(0x00, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, CDC_MAX_MPS, 0x02),
+    CDC_ECM_DESCRIPTOR_INIT(0x00, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP, CDC_MAX_MPS, CDC_ECM_ETH_STATISTICS_BITMAP, CONFIG_CDC_ECM_ETH_MAX_SEGSZE, 0, 0, CDC_ECM_MAC_STRING_INDEX),
     ///////////////////////////////////////
     /// string0 descriptor
     ///////////////////////////////////////
@@ -60,7 +71,7 @@ static const uint8_t cdc_descriptor[] = {
     ///////////////////////////////////////
     /// string2 descriptor
     ///////////////////////////////////////
-    0x26,                       /* bLength */
+    0x2E,                       /* bLength */
     USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
     'C', 0x00,                  /* wcChar0 */
     'h', 0x00,                  /* wcChar1 */
@@ -76,10 +87,14 @@ static const uint8_t cdc_descriptor[] = {
     'D', 0x00,                  /* wcChar11 */
     'C', 0x00,                  /* wcChar12 */
     ' ', 0x00,                  /* wcChar13 */
-    'D', 0x00,                  /* wcChar14 */
-    'E', 0x00,                  /* wcChar15 */
+    'E', 0x00,                  /* wcChar14 */
+    'C', 0x00,                  /* wcChar15 */
     'M', 0x00,                  /* wcChar16 */
-    'O', 0x00,                  /* wcChar17 */
+    ' ', 0x00,                  /* wcChar17 */
+    'D', 0x00,                  /* wcChar18 */
+    'E', 0x00,                  /* wcChar19 */
+    'M', 0x00,                  /* wcChar20 */
+    'O', 0x00,                  /* wcChar21 */
     ///////////////////////////////////////
     /// string3 descriptor
     ///////////////////////////////////////
@@ -95,6 +110,23 @@ static const uint8_t cdc_descriptor[] = {
     '4', 0x00,                  /* wcChar7 */
     '5', 0x00,                  /* wcChar8 */
     '6', 0x00,                  /* wcChar9 */
+    ///////////////////////////////////////
+    /// string4 descriptor
+    ///////////////////////////////////////
+    0x1A,                       /* bLength */
+    USB_DESCRIPTOR_TYPE_STRING, /* bDescriptorType */
+    'a', 0x00,                  /* wcChar0 */
+    'a', 0x00,                  /* wcChar1 */
+    'b', 0x00,                  /* wcChar2 */
+    'b', 0x00,                  /* wcChar3 */
+    'c', 0x00,                  /* wcChar4 */
+    'c', 0x00,                  /* wcChar5 */
+    'd', 0x00,                  /* wcChar6 */
+    'd', 0x00,                  /* wcChar7 */
+    'e', 0x00,                  /* wcChar8 */
+    'e', 0x00,                  /* wcChar9 */
+    'f', 0x00,                  /* wcChar10 */
+    'f', 0x00,                  /* wcChar11 */
 #ifdef CONFIG_USB_HS
     ///////////////////////////////////////
     /// device qualifier descriptor
@@ -113,12 +145,107 @@ static const uint8_t cdc_descriptor[] = {
     0x00
 };
 
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t read_buffer[2048];
-USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
+const uint8_t mac[6] = { 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff };
 
-volatile bool ep_tx_busy_flag = false;
+/*Static IP ADDRESS: IP_ADDR0.IP_ADDR1.IP_ADDR2.IP_ADDR3 */
+#define IP_ADDR0 (uint8_t)192
+#define IP_ADDR1 (uint8_t)168
+#define IP_ADDR2 (uint8_t)123
+#define IP_ADDR3 (uint8_t)100
 
-void usbd_event_handler(uint8_t busid, uint8_t event)
+/*NETMASK*/
+#define NETMASK_ADDR0 (uint8_t)255
+#define NETMASK_ADDR1 (uint8_t)255
+#define NETMASK_ADDR2 (uint8_t)255
+#define NETMASK_ADDR3 (uint8_t)0
+
+/*Gateway Address*/
+#define GW_ADDR0 (uint8_t)192
+#define GW_ADDR1 (uint8_t)168
+#define GW_ADDR2 (uint8_t)123
+#define GW_ADDR3 (uint8_t)1
+
+const ip_addr_t ipaddr = IPADDR4_INIT_BYTES(IP_ADDR0, IP_ADDR1, IP_ADDR2, IP_ADDR3);
+const ip_addr_t netmask = IPADDR4_INIT_BYTES(NETMASK_ADDR0, NETMASK_ADDR1, NETMASK_ADDR2, NETMASK_ADDR3);
+const ip_addr_t gateway = IPADDR4_INIT_BYTES(GW_ADDR0, GW_ADDR1, GW_ADDR2, GW_ADDR3);
+
+static struct netif cdc_ecm_netif; //network interface
+
+/* Network interface name */
+#define IFNAME0 'E'
+#define IFNAME1 'X'
+
+static err_t linkoutput_fn(struct netif *netif, struct pbuf *p)
+{
+    static int ret;
+
+    ret = usbd_cdc_ecm_eth_tx(p);
+    if (ret == 0)
+        return ERR_OK;
+    else
+        return ERR_BUF;
+}
+
+err_t cdc_ecm_if_init(struct netif *netif)
+{
+    LWIP_ASSERT("netif != NULL", (netif != NULL));
+
+    netif->mtu = 1500;
+    netif->flags = NETIF_FLAG_BROADCAST | NETIF_FLAG_ETHARP | NETIF_FLAG_LINK_UP | NETIF_FLAG_UP;
+    netif->state = NULL;
+    netif->name[0] = IFNAME0;
+    netif->name[1] = IFNAME1;
+    netif->output = etharp_output;
+    netif->linkoutput = linkoutput_fn;
+    return ERR_OK;
+}
+
+err_t cdc_ecm_if_input(struct netif *netif)
+{
+    static err_t err;
+    static struct pbuf *p;
+
+    p = usbd_cdc_ecm_eth_rx();
+    if (p != NULL) {
+        err = netif->input(p, netif);
+        if (err != ERR_OK) {
+            pbuf_free(p);
+        }
+    } else {
+        return ERR_BUF;
+    }
+    return err;
+}
+
+void cdc_ecm_lwip_init(void)
+{
+    struct netif *netif = &cdc_ecm_netif;
+
+    lwip_init();
+
+    netif->hwaddr_len = 6;
+    memcpy(netif->hwaddr, mac, 6);
+
+    netif = netif_add(netif, &ipaddr, &netmask, &gateway, NULL, cdc_ecm_if_init, netif_input);
+    netif_set_default(netif);
+    while (!netif_is_up(netif)) {
+    }
+
+    // while (dhserv_init(&dhcp_config)) {}
+
+    // while (dnserv_init(&ipaddr, PORT_DNS, dns_query_proc)) {}
+}
+
+void usbd_cdc_ecm_data_recv_done(uint8_t *buf, uint32_t len)
+{
+}
+
+void cdc_ecm_input_poll(void)
+{
+    cdc_ecm_if_input(&cdc_ecm_netif);
+}
+
+static void usbd_event_handler(uint8_t busid, uint8_t event)
 {
     switch (event) {
         case USBD_EVENT_RESET:
@@ -132,9 +259,6 @@ void usbd_event_handler(uint8_t busid, uint8_t event)
         case USBD_EVENT_SUSPEND:
             break;
         case USBD_EVENT_CONFIGURED:
-            ep_tx_busy_flag = false;
-            /* setup first out ep read transfer */
-            usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, 2048);
             break;
         case USBD_EVENT_SET_REMOTE_WAKEUP:
             break;
@@ -146,85 +270,29 @@ void usbd_event_handler(uint8_t busid, uint8_t event)
     }
 }
 
-void usbd_cdc_acm_bulk_out(uint8_t busid, uint8_t ep, uint32_t nbytes)
+struct usbd_interface intf0;
+struct usbd_interface intf1;
+
+/* ecm only supports in linux, and you should input the following command
+ *
+ * sudo ifconfig enxaabbccddeeff up
+ * sudo dhcpclient enxaabbccddeeff
+*/
+void cdc_ecm_init(uint8_t busid, uint32_t reg_base)
 {
-    USB_LOG_RAW("actual out len:%d\r\n", nbytes);
-    // for (int i = 0; i < 100; i++) {
-    //     printf("%02x ", read_buffer[i]);
-    // }
-    // printf("\r\n");
-    /* setup next out ep read transfer */
-    usbd_ep_start_read(busid, CDC_OUT_EP, read_buffer, 2048);
-}
+    cdc_ecm_lwip_init();
 
-void usbd_cdc_acm_bulk_in(uint8_t busid, uint8_t ep, uint32_t nbytes)
-{
-    USB_LOG_RAW("actual in len:%d\r\n", nbytes);
-
-    if ((nbytes % CDC_MAX_MPS) == 0 && nbytes) {
-        /* send zlp */
-        usbd_ep_start_write(busid, CDC_IN_EP, NULL, 0);
-    } else {
-        ep_tx_busy_flag = false;
-    }
-}
-
-/*!< endpoint call back */
-struct usbd_endpoint cdc_out_ep = {
-    .ep_addr = CDC_OUT_EP,
-    .ep_cb = usbd_cdc_acm_bulk_out
-};
-
-struct usbd_endpoint cdc_in_ep = {
-    .ep_addr = CDC_IN_EP,
-    .ep_cb = usbd_cdc_acm_bulk_in
-};
-
-static struct usbd_interface intf0;
-static struct usbd_interface intf1;
-
-/* function ------------------------------------------------------------------*/
-void cdc_acm_init(uint8_t busid, uint32_t reg_base)
-{
-    const uint8_t data[10] = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30 };
-
-    memcpy(&write_buffer[0], data, 10);
-    memset(&write_buffer[10], 'a', 2038);
-
-    usbd_desc_register(busid, cdc_descriptor);
-    usbd_add_interface(busid, usbd_cdc_acm_init_intf(busid, &intf0));
-    usbd_add_interface(busid, usbd_cdc_acm_init_intf(busid, &intf1));
-    usbd_add_endpoint(busid, &cdc_out_ep);
-    usbd_add_endpoint(busid, &cdc_in_ep);
+    usbd_desc_register(busid, cdc_ecm_descriptor);
+    usbd_add_interface(busid, usbd_cdc_ecm_init_intf(&intf0, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP));
+    usbd_add_interface(busid, usbd_cdc_ecm_init_intf(&intf1, CDC_INT_EP, CDC_OUT_EP, CDC_IN_EP));
     usbd_initialize(busid, reg_base, usbd_event_handler);
-}
-
-volatile uint8_t dtr_enable = 0;
-
-void usbd_cdc_acm_set_dtr(uint8_t busid, uint8_t intf, bool dtr)
-{
-    if (dtr) {
-        dtr_enable = 1;
-    } else {
-        dtr_enable = 0;
-    }
-}
-
-static void cdc_acm_data_send_with_dtr_test(uint8_t busid)
-{
-    if (dtr_enable) {
-        ep_tx_busy_flag = true;
-        usbd_ep_start_write(busid, CDC_IN_EP, write_buffer, 2048);
-        while (ep_tx_busy_flag) {
-        }
-    }
 }
 
 static void usb_task(void *arg)
 {
-    cdc_acm_init(0, USB_BASE);
+    cdc_ecm_init(0, USB_BASE);
     while (1) {
-        cdc_acm_data_send_with_dtr_test(0);
+        // cdc_acm_data_send_with_dtr_test(0);
         vTaskDelay(pdMS_TO_TICKS(500));
     }
 }
